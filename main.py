@@ -1,7 +1,9 @@
 import yaml
-from datetime import datetime, date, timedelta
-from sec_scraper import scrape_filing_links
+from datetime import date, timedelta
 import os
+import asyncio
+from sec_scraper import scrape_filing_links
+from sec_downloader import download_filings
 
 FILENAME = "filings.yaml"
 
@@ -14,21 +16,20 @@ def load_filings():
         with open(FILENAME, "r") as f:
             return yaml.safe_load(f) or {}
     else:
-        # File doesn't exist, return empty dict
         return {}
 
 def save_filings(data):
     with open(FILENAME, "w") as f:
         yaml.safe_dump(data, f)
 
-def main():
+async def async_main():
     config = load_config()
     query = config.get("sec", {}).get("query", "PIPE Subscription Agreement")
     days_back = config.get("sec", {}).get("days_back", 1)
 
     print(f"🔍 Searching for: '{query}' over past {days_back} day(s)")
 
-    filings = scrape_filing_links(query=query, days_back=days_back)
+    filings = await scrape_filing_links(query=query, days_back=days_back)
     if not filings:
         print("❌ No filings found.")
         return
@@ -54,6 +55,14 @@ def main():
         data[todays_str] = new_filings
 
     save_filings(data)
+
+    to_download = data[todays_str]
+    print(f"⬇️ Starting download of {len(to_download)} filings...")
+    await download_filings(to_download, save_folder="./filings")
+    print("✅ All filings downloaded.")
+
+def main():
+    asyncio.run(async_main())
 
 if __name__ == "__main__":
     main()
