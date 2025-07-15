@@ -3,7 +3,7 @@ from datetime import date, timedelta
 import os
 import asyncio
 from sec_scraper import scrape_filing_links
-from sec_downloader import download_filings
+from sec_downloader import download_filings_with_puppeteer
 
 FILENAME = "filings.yaml"
 
@@ -58,7 +58,7 @@ async def async_main():
 
     to_download = data[todays_str]
     print(f"⬇️ Starting download of {len(to_download)} filings...")
-    await download_filings(to_download, save_folder="./filings")
+    await download_filings_with_puppeteer(to_download)
     print("✅ All filings downloaded.")
 
 def main():

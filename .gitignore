@@ -1,5 +1,8 @@
 /__pycache__
 /filings
 /venv
+/node_modules
 config.yaml
 filings.yaml
+package.json
+package-lock.json
