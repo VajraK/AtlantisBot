@@ -1,5 +1,5 @@
 import time
-from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
+from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError, Error as PlaywrightError
 from datetime import datetime, timedelta
 from urllib.parse import quote
 
@@ -32,6 +32,7 @@ def scrape_filing_links(query: str, days_back: int = 1):
     print(f"Opening SEC search URL:\n{url}")
 
     results = []
+    results_set = set()  # For fast duplicate checking
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=False)
@@ -39,7 +40,7 @@ def scrape_filing_links(query: str, days_back: int = 1):
         page.goto(url, wait_until="domcontentloaded")
 
         # Initial wait for JS to populate results
-        time.sleep(2)
+        time.sleep(3)
 
         while True:
             wait_for_filings_table(page, selector="#hits > table > tbody > tr", retries=3, delay=10)
@@ -52,12 +53,19 @@ def scrape_filing_links(query: str, days_back: int = 1):
                 if not link_elem:
                     continue
                 href = link_elem.get_attribute("href")
-                if href and href.startswith("http") and href not in results:
+                if href and href.startswith("http") and href not in results_set:
                     results.append(href)
+                    results_set.add(href)
 
-            # Check for 'Next page' link presence and enabled state
-            next_page_link = page.query_selector('li.page-item > a.page-link[data-value="nextPage"]')
-            if next_page_link:
+            # Find the next page button by text or aria-label, fallback on data-value attribute
+            next_page_link = None
+            try:
+                next_page_link = page.query_selector('li.page-item > a.page-link[data-value="nextPage"]')
+                if not next_page_link or not next_page_link.is_visible():
+                    print("Next page link is not visible or does not exist.")
+                    break
+
+                # Check if parent li is disabled or hidden
                 parent_li = next_page_link.evaluate_handle("el => el.parentElement")
                 style = parent_li.get_attribute("style") or ""
                 class_attr = parent_li.get_attribute("class") or ""
@@ -67,11 +75,19 @@ def scrape_filing_links(query: str, days_back: int = 1):
                     break
 
                 print("Clicking 'Next page' link...")
+                # Scroll into view and click safely
+                next_page_link.scroll_into_view_if_needed()
                 next_page_link.click()
-                # Wait for new content to load
-                time.sleep(5)
-            else:
-                print("No 'Next page' link found.")
+
+                # Wait for the rows to refresh by waiting for network idle or specific element changes
+                # We'll wait for either new rows or a slight delay for lazy load
+                page.wait_for_selector("#hits > table > tbody > tr", timeout=15000)
+
+                # Additional sleep to allow JS to finish loading
+                time.sleep(3)
+
+            except PlaywrightError as e:
+                print(f"Failed to click next page link or wait for new results: {e}")
                 break
 
         browser.close()
