@@ -4,6 +4,7 @@ import os
 import asyncio
 from sec_scraper import scrape_filing_links
 from sec_downloader import download_filings_with_puppeteer
+from ai_api import analyze_filing
 
 FILENAME = "filings.yaml"
 
@@ -60,6 +61,26 @@ async def async_main():
     print(f"⬇️ Starting download of {len(to_download)} filings...")
     await download_filings_with_puppeteer(to_download)
     print("✅ All filings downloaded.")
+
+    # 🔍 Analyze each downloaded filing
+    download_dir = f"filings/{todays_str}"
+    if not os.path.isdir(download_dir):
+        print(f"❌ Download directory not found: {download_dir}")
+        return
+
+    html_files = sorted([f for f in os.listdir(download_dir) if f.endswith(".html")])
+    if not html_files:
+        print("❌ No HTML filings found in download directory.")
+        return
+
+    print(f"🧠 Analyzing {len(html_files)} filing(s) with GPT...")
+    for i, filename in enumerate(html_files, 1):
+        full_path = os.path.join(download_dir, filename)
+        print(f"\n📂 Filing {i}/{len(html_files)}: {filename}")
+        result = await analyze_filing(full_path)
+        print("📊 GPT Result:")
+        print(result or "❌ No response or error.")
+        print("-" * 40)
 
 def main():
     asyncio.run(async_main())
