@@ -1,2 +1,7 @@
-PyYAML
-requests
+aiofiles
+beautifulsoup4
+httpx
+pyyaml
+python-telegram-bot==20.7
+openai
+urllib3

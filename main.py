@@ -1,11 +1,14 @@
 import yaml
-from datetime import date, timedelta
+from datetime import date, timedelta, datetime
 import os
 import asyncio
+import glob
 from sec_scraper import scrape_filing_links
 from sec_downloader import download_filings_with_puppeteer
 from ai_api import analyze_filing
+from telegram_sender import TelegramSender
 
+telegram_sender = TelegramSender()
 FILENAME = "filings.yaml"
 
 def load_config(path="config.yaml"):
@@ -37,36 +40,41 @@ async def async_main():
 
     data = load_filings()
 
-    yesterday_str = (date.today() - timedelta(days=1)).isoformat()
-    todays_str = date.today().isoformat()
+    today = date.today()
+    yesterday = today - timedelta(days=1)
 
-    yesterdays_filings = set(data.get(yesterday_str, []))
+    today_str = today.isoformat()
+    yesterday_str = yesterday.isoformat()
+    now_str = datetime.now().isoformat(timespec='seconds')  # e.g., 2025-07-17T14:30:00
 
-    if not yesterdays_filings:
-        print(f"ℹ️ No filings found for yesterday ({yesterday_str}). Saving all found filings for today.")
-        data[todays_str] = filings
-    else:
-        print(f"ℹ️ Found {len(yesterdays_filings)} filings from yesterday in YAML.")
-        new_filings = [f for f in filings if f not in yesterdays_filings]
+    # Combine filings from today and yesterday
+    seen_filings = set()
+    for key, links in data.items():
+        if key.startswith(today_str) or key.startswith(yesterday_str):
+            seen_filings.update(links)
 
-        if not new_filings:
-            print("ℹ️ No new filings to save today.")
-            return
+    new_filings = [f for f in filings if f not in seen_filings]
 
-        data[todays_str] = new_filings
+    if not new_filings:
+        print("ℹ️ No new filings to save today.")
+        return
 
+    print(f"🆕 Found {len(new_filings)} new filing(s) not seen in today or yesterday.")
+    data[now_str] = new_filings
     save_filings(data)
 
-    to_download = data[todays_str]
-    print(f"⬇️ Starting download of {len(to_download)} filings...")
-    await download_filings_with_puppeteer(to_download)
+    print(f"⬇️ Starting download of {len(new_filings)} filings...")
+    await download_filings_with_puppeteer(new_filings)
     print("✅ All filings downloaded.")
 
-    # 🔍 Analyze each downloaded filing
-    download_dir = f"filings/{todays_str}"
-    if not os.path.isdir(download_dir):
-        print(f"❌ Download directory not found: {download_dir}")
+    # 🔍 Find latest download folder for today
+    folders = sorted(glob.glob(f"filings/{today_str}*"), reverse=True)
+    if not folders:
+        print(f"❌ No download folder found for today: {today_str}")
         return
+
+    download_dir = folders[0]
+    print(f"📂 Analyzing files in: {download_dir}")
 
     html_files = sorted([f for f in os.listdir(download_dir) if f.endswith(".html")])
     if not html_files:
@@ -81,6 +89,14 @@ async def async_main():
         print("📊 GPT Result:")
         print(result or "❌ No response or error.")
         print("-" * 40)
+        if result and result.strip() != 'X':
+            await telegram_sender.send_filing_result(result, filename)
+
+        # 💾 Optionally save output to .gpt.txt
+        if result:
+            out_path = full_path.replace(".html", ".gpt.txt")
+            with open(out_path, "w", encoding="utf-8") as f:
+                f.write(result)
 
 def main():
     asyncio.run(async_main())

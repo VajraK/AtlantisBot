@@ -1,4 +1,6 @@
 openai_api_key: "sk-xxxxxxxxxxxxxxxxxxxx"
+telegram_bot_token: "xxxxx"
+telegram_chat_id: "xxxxx"
 sec:
   query: "PIPE Subscription Agreement"
   days_back: 1
@@ -12,8 +14,7 @@ prompt: |
 
   Please return only **one block per company**, in **under 120 words total**, and inside that block:
   - Summarize each opportunity as a bullet point (1–3 short ones is fine)
-  - Make it readable and quick to scan — no walls of text
-  - Use a slightly funny tone — professional but fun (don't be afraid to be a fool)
+  - Make it readable and quick to scan, short phrases - no full sentences
 
   If there are **no such private investment opportunities**, respond only with:
 

@@ -1,37 +1,37 @@
 import os
+import re
 import yaml
 import openai
-import asyncio
-import sys
-from bs4 import BeautifulSoup
 import logging
 import tiktoken
 from datetime import datetime
+from bs4 import BeautifulSoup
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-MAX_INPUT_TOKENS = 27000  # Leave room for output
+MAX_INPUT_TOKENS = 25000  # Max tokens for final GPT-4.1 prompt
+CHUNK_TOKENS = 10000      # Tokens per chunk for summarization
+MAX_CHUNKS = 5            # Max number of chunks to process
 
 def load_config(path="config.yaml"):
     with open(path, "r") as f:
         return yaml.safe_load(f)
 
 def clean_response_text(text: str) -> str:
-    import re
     text = re.sub(r'^\s*```(?:json)?\s*', '', text, flags=re.IGNORECASE)
     text = re.sub(r'\s*```\s*$', '', text, flags=re.IGNORECASE)
     return text.strip()
 
-def truncate_text_to_max_tokens(text: str, max_tokens=MAX_INPUT_TOKENS, model="gpt-4o-mini"):
+def chunk_text(text, max_chunk_tokens=CHUNK_TOKENS, model="gpt-4o-mini"):
     encoding = tiktoken.encoding_for_model(model)
     tokens = encoding.encode(text)
-    if len(tokens) > max_tokens:
-        logger.info(f"Text too long ({len(tokens)} tokens), truncating to {max_tokens} tokens.")
-        tokens = tokens[:max_tokens]
-        truncated_text = encoding.decode(tokens)
-        return truncated_text
-    return text
+    chunks = []
+    for i in range(0, len(tokens), max_chunk_tokens):
+        chunk_tokens = tokens[i:i+max_chunk_tokens]
+        chunk_text = encoding.decode(chunk_tokens)
+        chunks.append(chunk_text)
+    return chunks[:MAX_CHUNKS]
 
 async def analyze_filing(filepath: str) -> str:
     config = load_config()
@@ -55,46 +55,79 @@ async def analyze_filing(filepath: str) -> str:
         logger.error(f"Error reading file {filepath}: {e}")
         return None
 
-    text = truncate_text_to_max_tokens(text, max_tokens=MAX_INPUT_TOKENS)
+    encoding = tiktoken.encoding_for_model("gpt-4o-mini")
+    tokens = encoding.encode(text)
 
     current_date = datetime.now().strftime("%Y-%m-%d")
     prompt_filled = prompt_template.replace("{{current_date}}", current_date)
-    full_prompt = prompt_filled + "\n\nHere is the document:\n\n" + text
+
+    # If input is small enough, send directly to GPT-4.1
+    if len(tokens) <= MAX_INPUT_TOKENS:
+        full_prompt = prompt_filled + "\n\nHere is the document:\n\n" + text
+        try:
+            logger.info("Sending request to OpenAI GPT-4.1...")
+            response = openai.chat.completions.create(
+                model="gpt-4.1",
+                messages=[
+                    {"role": "system", "content": "You are a financial analyst specializing in private investment rounds before IPO."},
+                    {"role": "user", "content": full_prompt}
+                ],
+                max_tokens=1000,
+                temperature=0.2,
+            )
+            raw_output = response.choices[0].message.content
+            cleaned_output = clean_response_text(raw_output)
+            return cleaned_output
+
+        except Exception as e:
+            logger.error(f"OpenAI API error: {e}")
+            return None
+
+    # Otherwise chunk and summarize with cheaper model first
+    chunks = chunk_text(text)
+    summaries = []
+    for i, chunk in enumerate(chunks, 1):
+        summary_prompt = (
+            "Please provide a concise summary of the following document chunk "
+            f"(part {i} of {len(chunks)}), focusing on private investment rounds and relevant financial details:\n\n"
+            + chunk
+        )
+        try:
+            logger.info(f"Summarizing chunk {i}/{len(chunks)} with cheaper model...")
+            response = openai.chat.completions.create(
+                model="gpt-4o-mini",  # cheaper model for summarization; can switch to "gpt-3.5-turbo"
+                messages=[
+                    {"role": "system", "content": "You are a helpful assistant specialized in summarizing financial documents."},
+                    {"role": "user", "content": summary_prompt}
+                ],
+                max_tokens=500,
+                temperature=0.3,
+            )
+            raw_summary = response.choices[0].message.content
+            cleaned_summary = clean_response_text(raw_summary)
+            summaries.append(cleaned_summary)
+        except Exception as e:
+            logger.error(f"OpenAI API error during chunk {i} summary: {e}")
+            summaries.append(f"❌ Error summarizing chunk {i}")
+
+    combined_summary = "\n\n".join(summaries)
+    final_prompt = prompt_filled + "\n\nHere is the combined summary of the document:\n\n" + combined_summary
 
     try:
-        logger.info("Sending request to OpenAI GPT-4.1...")
-        response = openai.chat.completions.create(
+        logger.info("Sending combined summary to OpenAI GPT-4.1 for final analysis...")
+        final_response = openai.chat.completions.create(
             model="gpt-4.1",
             messages=[
                 {"role": "system", "content": "You are a financial analyst specializing in private investment rounds before IPO."},
-                {"role": "user", "content": full_prompt}
+                {"role": "user", "content": final_prompt}
             ],
             max_tokens=1000,
             temperature=0.2,
         )
-        raw_output = response.choices[0].message.content
-        cleaned_output = clean_response_text(raw_output)
-        return cleaned_output
+        raw_final_output = final_response.choices[0].message.content
+        cleaned_final_output = clean_response_text(raw_final_output)
+        return cleaned_final_output
 
     except Exception as e:
-        logger.error(f"OpenAI API error: {e}")
+        logger.error(f"OpenAI API error during final analysis: {e}")
         return None
-
-
-if __name__ == "__main__":
-    if len(sys.argv) != 2:
-        print("Usage: python ai_api.py <path_to_html_filing>")
-        sys.exit(1)
-
-    file_path = sys.argv[1]
-    if not os.path.isfile(file_path):
-        print(f"❌ File not found: {file_path}")
-        sys.exit(1)
-
-    async def main():
-        logger.info(f"Analyzing {file_path}...")
-        result = await analyze_filing(file_path)
-        print("\n📊 GPT Result:")
-        print(result or "❌ No response or error.")
-
-    asyncio.run(main())

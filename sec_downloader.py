@@ -1,13 +1,13 @@
 import asyncio
-import subprocess
+from datetime import datetime
 
 async def download_filings_with_puppeteer(filing_urls):
     if not filing_urls:
         print("No filings to download.")
         return
 
-    # Convert list of URLs to args for node script
-    args = ["node", "puppeteer_downloader.js"] + filing_urls
+    datetime_str = datetime.now().isoformat(timespec='seconds')  # e.g., 2025-07-17T14:30:00
+    args = ["node", "puppeteer_downloader.js", datetime_str] + filing_urls
 
     print("▶️ Calling Puppeteer Node.js downloader...")
 
@@ -27,3 +27,4 @@ async def download_filings_with_puppeteer(filing_urls):
 
     if proc.returncode != 0:
         raise RuntimeError(f"Puppeteer downloader exited with code {proc.returncode}")
+
