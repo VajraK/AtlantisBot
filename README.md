@@ -28,7 +28,7 @@ pip install -r requirements.txt
 Make sure you have **Node.js** installed.
 
 ```bash
-npm install -g puppeteer
+npm install puppeteer@latest puppeteer-extra puppeteer-extra-plugin-stealth
 ```
 
 Puppeteer is used to reliably download and render HTML content from SEC.gov.
