@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+
 import yaml
 from datetime import date, timedelta, datetime
 import os
