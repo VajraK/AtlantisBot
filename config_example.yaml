@@ -2,8 +2,10 @@ openai_api_key: "sk-xxxxxxxxxxxxxxxxxxxx"
 telegram_bot_token: "xxxxx"
 telegram_chat_id: "xxxxx"
 sec:
-  query: "PIPE Subscription Agreement"
+  queries:
+    - PIPE Subscription Agreement
   days_back: 1
+interval_minutes: 60
 prompt: |
   Analyze the following SEC filing for any private investment opportunities that are still relevant as of {{current_date}}.
 
