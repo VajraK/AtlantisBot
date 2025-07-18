@@ -1,5 +1,3 @@
-#!/usr/bin/env python
-
 import yaml
 from datetime import date, timedelta, datetime
 import os
@@ -30,38 +28,53 @@ def save_filings(data):
 
 async def async_main():
     config = load_config()
-    query = config.get("sec", {}).get("query", "PIPE Subscription Agreement")
+    queries = config.get("sec", {}).get("queries")
+
+    # Fallback to single 'query' key if 'queries' is not provided
+    if not queries:
+        queries = [config.get("sec", {}).get("query", "PIPE Subscription Agreement")]
+
     days_back = config.get("sec", {}).get("days_back", 1)
+    print(f"🔍 Searching for queries over past {days_back} day(s): {queries}")
 
-    print(f"🔍 Searching for: '{query}' over past {days_back} day(s)")
+    all_filings = []
 
-    filings = await scrape_filing_links(query=query, days_back=days_back)
-    if not filings:
-        print("❌ No filings found.")
+    for query in queries:
+        print(f"\n🔍 Searching for: '{query}'")
+        filings = await scrape_filing_links(query=query, days_back=days_back)
+        if filings:
+            all_filings.extend(filings)
+        else:
+            print(f"❌ No filings found for '{query}'")
+
+    # Remove duplicates while preserving order
+    seen = set()
+    unique_filings = [f for f in all_filings if not (f in seen or seen.add(f))]
+
+    if not unique_filings:
+        print("❌ No filings found across all queries.")
         return
 
+    # Load past filings and check for new ones
     data = load_filings()
-
     today = date.today()
     yesterday = today - timedelta(days=1)
-
     today_str = today.isoformat()
     yesterday_str = yesterday.isoformat()
-    now_str = datetime.now().isoformat(timespec='seconds')  # e.g., 2025-07-17T14:30:00
+    now_str = datetime.now().isoformat(timespec='seconds')
 
-    # Combine filings from today and yesterday
     seen_filings = set()
     for key, links in data.items():
         if key.startswith(today_str) or key.startswith(yesterday_str):
             seen_filings.update(links)
 
-    new_filings = [f for f in filings if f not in seen_filings]
+    new_filings = [f for f in unique_filings if f not in seen_filings]
 
     if not new_filings:
         print("ℹ️ No new filings to save today.")
         return
 
-    print(f"🆕 Found {len(new_filings)} new filing(s) not seen in today or yesterday.")
+    print(f"🆕 Found {len(new_filings)} new filing(s) across all queries.")
     data[now_str] = new_filings
     save_filings(data)
 
@@ -69,7 +82,7 @@ async def async_main():
     await download_filings_with_puppeteer(new_filings)
     print("✅ All filings downloaded.")
 
-    # 🔍 Find latest download folder for today
+    # Proceed with the rest of the pipeline
     folders = sorted(glob.glob(f"filings/{today_str}*"), reverse=True)
     if not folders:
         print(f"❌ No download folder found for today: {today_str}")
