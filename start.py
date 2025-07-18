@@ -2,15 +2,24 @@ import asyncio
 import subprocess
 import sys
 import os
+import yaml
 from datetime import datetime
 
+# Path to the script to run
 SCRIPT_PATH = os.path.join(os.path.dirname(__file__), "main.py")
 
-async def run_every_30_minutes():
+# Path to the config file
+CONFIG_PATH = os.path.join(os.path.dirname(__file__), "config.yaml")
+
+def load_config():
+    with open(CONFIG_PATH, "r") as f:
+        return yaml.safe_load(f)
+
+async def run_every_x_minutes(interval_minutes: int):
     while True:
         print(f"⏳ Starting run at {datetime.now().isoformat()}")
         process = await asyncio.create_subprocess_exec(
-            sys.executable,  # Automatically uses the Python interpreter running this script (e.g. from venv)
+            sys.executable,
             SCRIPT_PATH,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -22,8 +31,10 @@ async def run_every_30_minutes():
         if stderr:
             print("⚠️ Errors:\n", stderr.decode())
 
-        print("🕒 Sleeping for 30 minutes...\n")
-        await asyncio.sleep(1800)
+        print(f"🕒 Sleeping for {interval_minutes} minutes...\n")
+        await asyncio.sleep(interval_minutes * 60)
 
 if __name__ == "__main__":
-    asyncio.run(run_every_30_minutes())
+    config = load_config()
+    interval = config.get("interval_minutes", 30)  # Default to 30 if not set
+    asyncio.run(run_every_x_minutes(interval))
