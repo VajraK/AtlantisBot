@@ -6,3 +6,4 @@ config.yaml
 filings.yaml
 package.json
 package-lock.json
+main.log
