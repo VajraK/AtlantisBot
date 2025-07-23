@@ -104,14 +104,20 @@ async def async_main():
         print("📊 GPT Result:")
         print(result or "❌ No response or error.")
         print("-" * 40)
-        if result and result.strip() != 'X':
-            await telegram_sender.send_filing_result(result, filename)
-
-        # 💾 Optionally save output to .gpt.txt
         if result:
             out_path = full_path.replace(".html", ".gpt.txt")
             with open(out_path, "w", encoding="utf-8") as f:
                 f.write(result)
+
+            from duplicate_checker import is_duplicate
+            is_dup = await is_duplicate(result)
+
+            if not is_dup and result.strip() != 'X':
+                print("📬 Sending unique filing to Telegram...")
+                await telegram_sender.send_filing_result(result, filename)
+            else:
+                print("⚠️ Duplicate filing skipped.")
+
 
 def main():
     asyncio.run(async_main())

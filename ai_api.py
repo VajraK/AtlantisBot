@@ -131,3 +131,29 @@ async def analyze_filing(filepath: str) -> str:
     except Exception as e:
         logger.error(f"OpenAI API error during final analysis: {e}")
         return None
+
+async def ask_gpt(prompt: str, model="gpt-4.1", temperature=0.3, max_tokens=500) -> str:
+    config = load_config()
+    api_key = config.get("openai_api_key") or os.environ.get("OPENAI_API_KEY")
+    if not api_key:
+        logger.error("OpenAI API key not found.")
+        return None
+
+    openai.api_key = api_key
+
+    try:
+        logger.info("Sending custom prompt to GPT...")
+        response = openai.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": "You are a helpful assistant that checks for semantic duplication in text summaries."},
+                {"role": "user", "content": prompt}
+            ],
+            max_tokens=max_tokens,
+            temperature=temperature,
+        )
+        raw_output = response.choices[0].message.content
+        return clean_response_text(raw_output)
+    except Exception as e:
+        logger.error(f"Error calling GPT in ask_gpt(): {e}")
+        return None
