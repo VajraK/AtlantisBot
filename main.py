@@ -8,6 +8,7 @@ import logging
 from sec_scraper import scrape_filing_links
 from sec_downloader import download_filings_with_puppeteer
 from ai_api import analyze_filing
+from duplicate_checker import is_duplicate
 from telegram_sender import TelegramSender
 
 telegram_sender = TelegramSender()
@@ -136,14 +137,13 @@ async def async_main():
             with open(out_path, "w", encoding="utf-8") as f:
                 f.write(result)
 
-            from duplicate_checker import is_duplicate
-            is_dup = await is_duplicate(result)
+            is_dup = await is_duplicate(result, out_path)
 
             if not is_dup and result.strip() != 'X':
                 logger.info("📬 Sending unique filing to Telegram...")
                 await telegram_sender.send_filing_result(result, filename)
             else:
-                logger.info("⚠️ Duplicate filing skipped.")
+                logger.info("⚠️ Duplicate or empty filing skipped.")
 
 
 def main():
