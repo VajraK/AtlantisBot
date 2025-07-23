@@ -1,16 +1,16 @@
 import os
-from datetime import date, datetime, timedelta
-from ai_api import ask_gpt  # This now works!
+from datetime import date, timedelta
+from ai_api import ask_gpt
 
-def get_recent_gpt_texts(base_folder="filings", exclude_path=None):
+def get_recent_gpt_texts(base_folder="filings", exclude_path=None, limit=100):
     """
-    Load .gpt.txt summaries from the last 48 hours,
+    Load up to `limit` .gpt.txt summaries from the last 48 hours,
     excluding the provided path.
     """
     today = date.today()
     yesterday = today - timedelta(days=1)
     relevant_days = [today.isoformat(), yesterday.isoformat()]
-    texts = []
+    entries = []
 
     for folder in os.listdir(base_folder):
         if not any(folder.startswith(day) for day in relevant_days):
@@ -32,11 +32,16 @@ def get_recent_gpt_texts(base_folder="filings", exclude_path=None):
                 with open(full_path, "r", encoding="utf-8") as f:
                     content = f.read().strip()
                     if content and content != "X":
-                        texts.append(content)
+                        # Add (timestamp, content) pair for sorting
+                        timestamp = os.path.getmtime(full_path)
+                        entries.append((timestamp, content))
             except Exception:
                 continue
 
-    return texts
+    # Sort by most recent modified time (descending)
+    entries.sort(reverse=True, key=lambda x: x[0])
+    # Return only content of top `limit` entries
+    return [content for _, content in entries[:limit]]
 
 async def is_duplicate(new_text: str, new_text_path: str = None) -> bool:
     """
@@ -45,10 +50,9 @@ async def is_duplicate(new_text: str, new_text_path: str = None) -> bool:
     if not new_text or new_text.strip() == "X":
         return False  # Don't waste GPT calls on non-substantive filings
 
-    old_texts = get_recent_gpt_texts(exclude_path=new_text_path)
-
+    old_texts = get_recent_gpt_texts(exclude_path=new_text_path, limit=100)
     if not old_texts:
-        return False  # No history = can't be duplicate
+        return False
 
     prompt = f"""
 You are a financial analyst reviewing summaries of SEC PIPE filings for potential duplication.

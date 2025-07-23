@@ -4,6 +4,7 @@ import os
 import asyncio
 import glob
 import logging
+from logging.handlers import RotatingFileHandler
 
 from sec_scraper import scrape_filing_links
 from sec_downloader import download_filings_with_puppeteer
@@ -14,15 +15,17 @@ from telegram_sender import TelegramSender
 telegram_sender = TelegramSender()
 FILENAME = "filings.yaml"
 
-# Set up logger
+# Set up logger with rotation
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 if not logger.handlers:
     formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
 
-    # Log to file
-    file_handler = logging.FileHandler("main.log", mode='a', encoding='utf-8')
+    # Log to file with rotation
+    file_handler = RotatingFileHandler(
+        "main.log", maxBytes=5_000_000, backupCount=5, encoding='utf-8'
+    )
     file_handler.setFormatter(formatter)
     file_handler.setLevel(logging.INFO)
     logger.addHandler(file_handler)
@@ -55,7 +58,6 @@ async def async_main():
     config = load_config()
     queries = config.get("sec", {}).get("queries")
 
-    # Fallback to single 'query' key if 'queries' is not provided
     if not queries:
         queries = [config.get("sec", {}).get("query", "PIPE Subscription Agreement")]
 
@@ -72,7 +74,6 @@ async def async_main():
         else:
             logger.info(f"❌ No filings found for '{query}'")
 
-    # Remove duplicates while preserving order
     seen = set()
     unique_filings = [f for f in all_filings if not (f in seen or seen.add(f))]
 
@@ -80,7 +81,6 @@ async def async_main():
         logger.info("❌ No filings found across all queries.")
         return
 
-    # Load past filings and check for new ones
     data = load_filings()
     today = date.today()
     yesterday = today - timedelta(days=1)
@@ -107,7 +107,6 @@ async def async_main():
     await download_filings_with_puppeteer(new_filings)
     logger.info("✅ All filings downloaded.")
 
-    # Proceed with the rest of the pipeline
     folders = sorted(glob.glob(f"filings/{today_str}*"), reverse=True)
     if not folders:
         logger.info(f"❌ No download folder found for today: {today_str}")
