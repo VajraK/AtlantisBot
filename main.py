@@ -3,6 +3,8 @@ from datetime import date, timedelta, datetime
 import os
 import asyncio
 import glob
+import logging
+
 from sec_scraper import scrape_filing_links
 from sec_downloader import download_filings_with_puppeteer
 from ai_api import analyze_filing
@@ -10,6 +12,18 @@ from telegram_sender import TelegramSender
 
 telegram_sender = TelegramSender()
 FILENAME = "filings.yaml"
+
+# 🪵 Logging setup
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=[
+        logging.FileHandler("main.log"),
+        logging.StreamHandler()
+    ]
+)
+
+logger = logging.getLogger(__name__)
 
 def load_config(path="config.yaml"):
     with open(path, "r") as f:
@@ -30,32 +44,29 @@ async def async_main():
     config = load_config()
     queries = config.get("sec", {}).get("queries")
 
-    # Fallback to single 'query' key if 'queries' is not provided
     if not queries:
         queries = [config.get("sec", {}).get("query", "PIPE Subscription Agreement")]
 
     days_back = config.get("sec", {}).get("days_back", 1)
-    print(f"🔍 Searching for queries over past {days_back} day(s): {queries}")
+    logger.info(f"🔍 Searching for queries over past {days_back} day(s): {queries}")
 
     all_filings = []
 
     for query in queries:
-        print(f"\n🔍 Searching for: '{query}'")
+        logger.info(f"🔍 Searching for: '{query}'")
         filings = await scrape_filing_links(query=query, days_back=days_back)
         if filings:
             all_filings.extend(filings)
         else:
-            print(f"❌ No filings found for '{query}'")
+            logger.warning(f"❌ No filings found for '{query}'")
 
-    # Remove duplicates while preserving order
     seen = set()
     unique_filings = [f for f in all_filings if not (f in seen or seen.add(f))]
 
     if not unique_filings:
-        print("❌ No filings found across all queries.")
+        logger.warning("❌ No filings found across all queries.")
         return
 
-    # Load past filings and check for new ones
     data = load_filings()
     today = date.today()
     yesterday = today - timedelta(days=1)
@@ -71,53 +82,58 @@ async def async_main():
     new_filings = [f for f in unique_filings if f not in seen_filings]
 
     if not new_filings:
-        print("ℹ️ No new filings to save today.")
+        logger.info("ℹ️ No new filings to save today.")
         return
 
-    print(f"🆕 Found {len(new_filings)} new filing(s) across all queries.")
+    logger.info(f"🆕 Found {len(new_filings)} new filing(s) across all queries.")
     data[now_str] = new_filings
     save_filings(data)
 
-    print(f"⬇️ Starting download of {len(new_filings)} filings...")
+    logger.info(f"⬇️ Starting download of {len(new_filings)} filings...")
     await download_filings_with_puppeteer(new_filings)
-    print("✅ All filings downloaded.")
+    logger.info("✅ All filings downloaded.")
 
-    # Proceed with the rest of the pipeline
     folders = sorted(glob.glob(f"filings/{today_str}*"), reverse=True)
     if not folders:
-        print(f"❌ No download folder found for today: {today_str}")
+        logger.warning(f"❌ No download folder found for today: {today_str}")
         return
 
     download_dir = folders[0]
-    print(f"📂 Analyzing files in: {download_dir}")
+    logger.info(f"📂 Analyzing files in: {download_dir}")
 
     html_files = sorted([f for f in os.listdir(download_dir) if f.endswith(".html")])
     if not html_files:
-        print("❌ No HTML filings found in download directory.")
+        logger.warning("❌ No HTML filings found in download directory.")
         return
 
-    print(f"🧠 Analyzing {len(html_files)} filing(s) with GPT...")
+    logger.info(f"🧠 Analyzing {len(html_files)} filing(s) with GPT...")
     for i, filename in enumerate(html_files, 1):
         full_path = os.path.join(download_dir, filename)
-        print(f"\n📂 Filing {i}/{len(html_files)}: {filename}")
+        logger.info(f"📂 Filing {i}/{len(html_files)}: {filename}")
+        
         result = await analyze_filing(full_path)
-        print("📊 GPT Result:")
-        print(result or "❌ No response or error.")
-        print("-" * 40)
+        
         if result:
-            out_path = full_path.replace(".html", ".gpt.txt")
-            with open(out_path, "w", encoding="utf-8") as f:
-                f.write(result)
+            logger.info("📊 GPT Result:")
+            logger.info(result)
+        else:
+            logger.warning("❌ No response or error.")
+            continue
 
-            from duplicate_checker import is_duplicate
-            is_dup = await is_duplicate(result)
+        out_path = full_path.replace(".html", ".gpt.txt")
+        with open(out_path, "w", encoding="utf-8") as f:
+            f.write(result)
+        logger.info(f"💾 Saved GPT result to: {out_path}")
 
-            if not is_dup and result.strip() != 'X':
-                print("📬 Sending unique filing to Telegram...")
-                await telegram_sender.send_filing_result(result, filename)
-            else:
-                print("⚠️ Duplicate filing skipped.")
+        from duplicate_checker import is_duplicate
+        logger.info("🔍 Checking for duplicates...")
+        is_dup = await is_duplicate(result)
 
+        if not is_dup and result.strip() != 'X':
+            logger.info("📬 Sending unique filing to Telegram...")
+            await telegram_sender.send_filing_result(result, filename)
+        else:
+            logger.warning("⚠️ Duplicate filing skipped.")
 
 def main():
     asyncio.run(async_main())
