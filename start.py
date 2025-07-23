@@ -29,7 +29,7 @@ async def run_every_x_minutes(interval_minutes: int):
         if stdout:
             print("📤 Output:\n", stdout.decode())
         if stderr:
-            print("⚠️ Errors:\n", stderr.decode())
+            print("📥 Logs from stderr (may include INFO logs too):\n", stderr.decode())
 
         print(f"🕒 Sleeping for {interval_minutes} minutes...\n")
         await asyncio.sleep(interval_minutes * 60)
