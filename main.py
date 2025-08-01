@@ -141,6 +141,8 @@ async def async_main():
             if not is_dup and result.strip() != 'X':
                 logger.info("📬 Sending unique filing to Telegram...")
                 await telegram_sender.send_filing_result(result, filename)
+                logger.info("⏳ Waiting 1 minute before next filing...")
+                await asyncio.sleep(60)
             else:
                 logger.info("⚠️ Duplicate or empty filing skipped.")
 
